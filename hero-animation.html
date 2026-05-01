@@ -13,16 +13,6 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Tiro+Devanagari+Hindi:wght@400&display=swap"
     rel="stylesheet" />
 
-  <!-- Three.js -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-    }
-  }
-  </script>
-
   <style>
     *,
     *::before,
@@ -41,24 +31,25 @@
       font-family: 'Inter', sans-serif;
     }
 
-    /* ── Animated Background ────────────────── */
+    /* ── Cyclorama Background ───────────────── */
     #bg-gradient {
       position: fixed;
       inset: 0;
       z-index: 0;
-      background: #fafafa;
+      background:
+        radial-gradient(ellipse 120% 100% at 50% 40%, #fafafa 0%, #ededed 80%, #e0e0e0 100%);
     }
 
-    /* ── Three.js Canvas ────────────────────── */
-    #scene-container {
+    /* ── Video Walk Layer ───────────────────── */
+    #walk-video {
       position: fixed;
-      inset: 0;
       z-index: 5;
       pointer-events: none;
-    }
-
-    canvas {
-      display: block;
+      height: 70vh;
+      bottom: 5%;
+      left: 0;
+      transform: translateX(-100%);
+      object-fit: contain;
     }
 
     /* ── Giant Text Zone ────────────────────── */
@@ -83,23 +74,20 @@
 
     #zone-designer .letter {
       display: inline-block;
-      /* Smooth reveal transition */
       opacity: 0;
       transition: opacity 0.4s ease-out;
       will-change: opacity, font-family;
       line-height: 1;
-      /* Prevents vertical jumping */
     }
 
-    /* Fixed widths prevent layout jumping when fonts cycle */
     #zone-designer .letter.english.cycle-font {
       width: 0.65em;
       text-align: center;
     }
 
-    #zone-designer .letter.hindi.cycle-font {
-      width: 1.1em;
+    #zone-designer .letter.indic-cycle {
       text-align: center;
+      overflow: visible;
     }
 
     #zone-designer .letter.revealed {
@@ -118,19 +106,21 @@
       letter-spacing: -0.04em;
     }
 
-    /* ── Floor Reflection ───────────────────── */
+    /* ── Cyclorama Floor Sweep ──────────────── */
     #floor-glow {
       position: fixed;
       bottom: 0;
       left: 0;
       right: 0;
-      height: 30%;
+      height: 45%;
       z-index: 1;
       pointer-events: none;
-      background: linear-gradient(to top, rgba(0, 0, 0, 0.03), transparent);
+      background:
+        radial-gradient(ellipse 160% 50% at 50% 0%, transparent 60%, rgba(0, 0, 0, 0.025) 100%),
+        linear-gradient(to top, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.015) 40%, transparent 100%);
     }
 
-    /* ── Loading State ──────────────────────── */
+    /* ── Loading / Intro White Screen ──────── */
     #loader {
       position: fixed;
       inset: 0;
@@ -177,7 +167,7 @@
 
 <body>
 
-  <!-- Loading Screen -->
+  <!-- Loading / Intro White Screen -->
   <div id="loader">
     <div class="spinner"></div>
     <p>Loading</p>
@@ -190,212 +180,241 @@
   <!-- Text Wipe Layer -->
   <div id="zone-designer"></div>
 
-  <!-- Three.js 3D Scene Layer -->
-  <div id="scene-container"></div>
+  <!-- Walk Cycle Video -->
+  <video id="walk-video" muted loop playsinline preload="auto">
+    <source src="./walk-cycle.webm" type="video/webm" />
+    <source src="./Cartwheel-export.mp4" type="video/mp4" />
+  </video>
 
-  <script type="module">
-    import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
+  <script>
     // ════════════════════════════════════════════
     // CONFIGURATION
     // ════════════════════════════════════════════
-    const GLB_PATH = './Cartwheel-export.glb';
-    const TRAVEL_DURATION = 6; // seconds to cross screen
+    const TRAVEL_DURATION = 6;
+    const INTRO_DELAY = 1.0;
+    const PAUSE_BETWEEN = 1.5;
 
-    // ── EDIT YOUR FONTS HERE ──
+    // ── ROTATING WORDS ──
+    // Each word has a 'before' part, hyphen, and 'after' part.
+    // One part is 'indic' (cycles through scripts), the other is 'english' (font cycles).
+    const WORDS = [
+      {
+        // डि-signer → "Designer"
+        before: { text: 'डि', type: 'indic' },
+        after:  { text: 'signer', type: 'english' },
+        indicCycle: ['డి', 'ഡി', 'ડી', 'ਡੀ', 'ଡି', 'ডি']
+      },
+      {
+        // Story-टेलर → "Storyteller"
+        before: { text: 'Story', type: 'english' },
+        after:  { text: 'टेलर', type: 'indic' },
+        indicCycle: ['టెల్లర్', 'ടെല്ലർ', 'ટેલર', 'ਟੈਲਰ', 'ଟେଲର', 'টেলার']
+      }
+    ];
+    let currentWordIndex = 0;
+
+    // ── FONT CYCLING FAMILIES ──
     const FONT_CYCLE_FAMILIES = [
       "'Inter', sans-serif",
       "'Space Mono', monospace",
       "'Times New Roman', serif",
       "'Courier New', Annai MN",
-      "Arial, sans-serif"
+      "Arial, sans-serif", "Katari"
     ];
 
     // ════════════════════════════════════════════
-    // TEXT ZONE SETUP (डि-signer)
+    // TEXT ZONE — DYNAMIC BUILD
     // ════════════════════════════════════════════
     const zDesigner = document.getElementById('zone-designer');
+    let revealTargets = [];
+    let indicSpan = null; // The span that cycles through Indic scripts
 
-    // "डि" (Base character + vowel modifier treated as one visual block)
-    const hindiSpan = document.createElement('span');
-    hindiSpan.classList.add('letter', 'hindi', 'cycle-font');
-    hindiSpan.textContent = 'डि';
-    zDesigner.appendChild(hindiSpan);
+    function buildPart(text, type) {
+      if (type === 'indic') {
+        // Single span for the Indic part
+        const span = document.createElement('span');
+        span.classList.add('letter', 'hindi', 'indic-cycle', 'cycle-font');
+        span.textContent = text;
+        zDesigner.appendChild(span);
+        indicSpan = span;
+      } else {
+        // Individual letter spans for English
+        text.split('').forEach((char) => {
+          const span = document.createElement('span');
+          span.classList.add('letter', 'english', 'cycle-font');
+          span.textContent = char;
+          zDesigner.appendChild(span);
+        });
+      }
+    }
 
-    // "-" (Hyphen)
-    const hyphenSpan = document.createElement('span');
-    hyphenSpan.classList.add('letter', 'english'); // No 'cycle-font' class, so it stays static
-    hyphenSpan.textContent = '-';
-    zDesigner.appendChild(hyphenSpan);
+    function buildWord(index) {
+      const word = WORDS[index];
+      zDesigner.innerHTML = '';
+      indicSpan = null;
 
-    // "signer"
-    'signer'.split('').forEach((char) => {
-      const span = document.createElement('span');
-      span.classList.add('letter', 'english', 'cycle-font');
-      span.textContent = char;
-      zDesigner.appendChild(span);
-    });
+      // Before part
+      buildPart(word.before.text, word.before.type);
 
-    const revealTargets = Array.from(document.querySelectorAll('.letter'));
+      // Hyphen
+      const hyphen = document.createElement('span');
+      hyphen.classList.add('letter', 'english');
+      hyphen.textContent = '-';
+      zDesigner.appendChild(hyphen);
 
-    // Start cycling fonts for targeted text every 200ms
+      // After part
+      buildPart(word.after.text, word.after.type);
+
+      revealTargets = Array.from(zDesigner.querySelectorAll('.letter'));
+    }
+
+    // Build the first word
+    buildWord(0);
+
+    // ════════════════════════════════════════════
+    // FONT & INDIC CYCLING
+    // ════════════════════════════════════════════
+    // indicCycleActive: true during pause + wipe phases (after first reveal)
+    let indicCycleActive = false;
+
+    // Font cycling — 200ms (all cycle-font letters, skip indic when it's script-cycling)
     setInterval(() => {
-      const cyclingLetters = document.querySelectorAll('.letter.cycle-font.revealed');
+      const cyclingLetters = zDesigner.querySelectorAll('.letter.cycle-font.revealed');
       cyclingLetters.forEach(el => {
+        // Skip font cycling on the indic span when it's doing script cycling
+        if (el.classList.contains('indic-cycle') && indicCycleActive) return;
         const randomFont = FONT_CYCLE_FAMILIES[Math.floor(Math.random() * FONT_CYCLE_FAMILIES.length)];
         el.style.fontFamily = randomFont;
       });
     }, 200);
 
-    // ════════════════════════════════════════════
-    // THREE.JS SCENE SETUP
-    // ════════════════════════════════════════════
-    const container = document.getElementById('scene-container');
-    const scene = new THREE.Scene();
-
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 0, 16);
-    camera.lookAt(0, 0, 0);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // Bright, clean tone mapping
-    renderer.toneMapping = THREE.LinearToneMapping;
-    renderer.toneMappingExposure = 1;
-    container.appendChild(renderer.domElement);
-
-    // Bright Studio Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
-    scene.add(ambientLight);
-
-    const mainLight = new THREE.DirectionalLight(0xffffff, 3.5);
-    mainLight.position.set(5, 10, 10);
-    scene.add(mainLight);
-
-    const rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
-    rimLight.position.set(-10, 5, -5);
-    scene.add(rimLight);
-
-    const fillLight = new THREE.DirectionalLight(0xeeeeee, 2.0);
-    fillLight.position.set(0, -5, 5);
-    scene.add(fillLight);
+    // Indic script cycling — 500ms (only when active)
+    setInterval(() => {
+      if (!indicCycleActive || !indicSpan) return;
+      if (!indicSpan.classList.contains('revealed')) return;
+      const currentIndicCycle = WORDS[currentWordIndex].indicCycle;
+      const randomChar = currentIndicCycle[Math.floor(Math.random() * currentIndicCycle.length)];
+      indicSpan.textContent = randomChar;
+    }, 500);
 
     // ════════════════════════════════════════════
-    // LOAD GLB MODEL & AUTO-FIT
+    // VIDEO WALK SETUP
     // ════════════════════════════════════════════
-    let mixer = null;
-    let model = null;
-    let animAction = null;
-    let modelReady = false;
+    const video = document.getElementById('walk-video');
+    const vw = () => window.innerWidth;
 
-    // We calculate horizontal start/end based on frustum
-    let frustumWidth = 0;
-    let startX = 0;
-    let endX = 0;
+    let animationStarted = false;
+    let phaseStartTime = null;
+    let phase = 'reveal';
 
-    function setupModel() {
-      // 1. Calculate vertical frustum height
-      const vFov = (camera.fov * Math.PI) / 180;
-      const heightAtZ = 2 * Math.tan(vFov / 2) * camera.position.z;
-      frustumWidth = heightAtZ * camera.aspect;
+    function startAnimation() {
+      if (animationStarted) return;
+      animationStarted = true;
 
-      // 2. HARDCODED SCALE AND POSITION (from user)
-      model.scale.setScalar(1.2)
-      model.position.y = -1;
-      model.rotation.y = Math.PI / 2; // Rotate 90 degrees to face the direction of walking
+      const loaderSpinner = document.querySelector('#loader .spinner');
+      const loaderText = document.querySelector('#loader p');
+      if (loaderSpinner) loaderSpinner.style.display = 'none';
+      if (loaderText) loaderText.style.display = 'none';
 
-      // 3. Define travel boundaries
-      startX = -frustumWidth / 3 - 5;
-      endX = frustumWidth / 3 + 5;
-      model.position.x = startX;
+      setTimeout(() => {
+        document.getElementById('loader').classList.add('hidden');
+        video.play().catch(() => {
+          document.addEventListener('touchstart', () => {
+            video.play();
+          }, { once: true });
+        });
+        phase = 'reveal';
+        phaseStartTime = performance.now();
+        requestAnimationFrame(animate);
+      }, INTRO_DELAY * 1000);
     }
 
-    const loader = new GLTFLoader();
-    loader.load(
-      GLB_PATH,
-      (gltf) => {
-        model = gltf.scene;
-        scene.add(model);
-
-        if (gltf.animations && gltf.animations.length > 0) {
-          mixer = new THREE.AnimationMixer(model);
-          animAction = mixer.clipAction(gltf.animations[0]);
-          animAction.play();
-        }
-
-        setupModel();
-
-        modelReady = true;
-        document.getElementById('loader').classList.add('hidden');
-      },
-      undefined,
-      (error) => {
-        console.error('Error loading GLB:', error);
-        document.getElementById('loader').querySelector('p').textContent = 'failed to load model';
-      }
-    );
+    video.addEventListener('canplaythrough', startAnimation, { once: true });
+    video.addEventListener('loadeddata', startAnimation);
 
     // ════════════════════════════════════════════
-    // ANIMATION LOOP & INTERACTION
+    // ANIMATION LOOP
+    // reveal → pause (indic cycling) → wipe (indic continues) → pause → next word → repeat
     // ════════════════════════════════════════════
-    const clock = new THREE.Clock();
-    let travelTime = 0;
-
-    function animate() {
+    function animate(timestamp) {
       requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+      if (!phaseStartTime) return;
 
-      if (mixer) mixer.update(delta);
+      const elapsed = (timestamp - phaseStartTime) / 1000;
+      const videoWidth = video.getBoundingClientRect().width;
+      const screenW = vw();
 
-      if (modelReady && model) {
-        // Linear walk progression without looping
-        travelTime += delta;
-        const progress = Math.min(travelTime / TRAVEL_DURATION, 1.0);
+      if (phase === 'reveal') {
+        // Walk left → right, reveal letters. Indic stays in base script.
+        indicCycleActive = false;
+        const progress = Math.min(elapsed / TRAVEL_DURATION, 1.0);
+        const startPx = -videoWidth;
+        const endPx = screenW + videoWidth * 0.2;
+        const currentPx = startPx + (endPx - startPx) * progress;
+        video.style.transform = `translateX(${currentPx}px) scaleX(1)`;
 
-        model.position.x = startX + (endX - startX) * progress;
-
-        // ─ Reveal Wipe Logic ─
-
-        // Get character's screen X position
-        const screenPos = model.position.clone();
-        screenPos.project(camera);
-        const charScreenX = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-
-        // Check if character passed the letters
+        const videoRect = video.getBoundingClientRect();
+        const charScreenX = videoRect.left + videoRect.width / 2;
         revealTargets.forEach((el) => {
-          if (el.classList.contains('revealed')) return; // Already revealed
-
+          if (el.classList.contains('revealed')) return;
           const rect = el.getBoundingClientRect();
-          // Trigger when character is passing the middle of the letter
           const letterCenter = rect.left + rect.width / 2;
-
           if (charScreenX > letterCenter) {
             el.classList.add('revealed');
           }
         });
-      }
 
-      renderer.render(scene, camera);
+        if (progress >= 1.0) {
+          revealTargets.forEach(el => el.classList.add('revealed'));
+          indicCycleActive = true; // Start Indic cycling
+          phase = 'pause-before-wipe';
+          phaseStartTime = timestamp;
+        }
+
+      } else if (phase === 'pause-before-wipe') {
+        // Pause: text fully visible, Indic cycling active
+        if (elapsed >= PAUSE_BETWEEN) {
+          // Keep indicCycleActive = true — cycling continues during wipe
+          phase = 'wipe';
+          phaseStartTime = timestamp;
+        }
+
+      } else if (phase === 'wipe') {
+        // Walk right → left, wipe letters off. Indic cycling continues.
+        const progress = Math.min(elapsed / TRAVEL_DURATION, 1.0);
+        const startPx = screenW + videoWidth * 0.2;
+        const endPx = -videoWidth;
+        const currentPx = startPx + (endPx - startPx) * progress;
+        video.style.transform = `translateX(${currentPx}px) scaleX(-1)`;
+
+        const videoRect = video.getBoundingClientRect();
+        const charScreenX = videoRect.left + videoRect.width / 2;
+        revealTargets.forEach((el) => {
+          if (!el.classList.contains('revealed')) return;
+          const rect = el.getBoundingClientRect();
+          const letterCenter = rect.left + rect.width / 2;
+          if (charScreenX < letterCenter) {
+            el.classList.remove('revealed');
+          }
+        });
+
+        if (progress >= 1.0) {
+          revealTargets.forEach(el => el.classList.remove('revealed'));
+          indicCycleActive = false; // Stop cycling
+          phase = 'pause-before-reveal';
+          phaseStartTime = timestamp;
+        }
+
+      } else if (phase === 'pause-before-reveal') {
+        // Pause: text fully hidden, then switch to next word
+        if (elapsed >= PAUSE_BETWEEN) {
+          currentWordIndex = (currentWordIndex + 1) % WORDS.length;
+          buildWord(currentWordIndex);
+          phase = 'reveal';
+          phaseStartTime = timestamp;
+        }
+      }
     }
-
-    animate();
-
-    // ════════════════════════════════════════════
-    // RESIZE HANDLER
-    // ════════════════════════════════════════════
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-
-      // Recalculate bounds on resize so it stays centered and sized correctly
-      if (modelReady) {
-        setupModel();
-      }
-    });
   </script>
 </body>
 
