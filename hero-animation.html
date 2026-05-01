@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Revanth — Hero Animation</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Tiro+Devanagari+Hindi:wght@400&display=swap"
+    rel="stylesheet" />
+
+  <!-- Three.js -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #fafafa;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ── Animated Background ────────────────── */
+    #bg-gradient {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: #fafafa;
+    }
+
+    /* ── Three.js Canvas ────────────────────── */
+    #scene-container {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    /* ── Giant Text Zone ────────────────────── */
+    #zone-designer {
+      position: fixed;
+      z-index: 2;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      user-select: none;
+      white-space: nowrap;
+
+      font-size: clamp(4rem, 12vw, 15rem);
+      font-weight: 900;
+      color: #111111;
+      letter-spacing: -0.02em;
+    }
+
+    #zone-designer .letter {
+      display: inline-block;
+      /* Smooth reveal transition */
+      opacity: 0;
+      transition: opacity 0.4s ease-out;
+      will-change: opacity, font-family;
+      line-height: 1;
+      /* Prevents vertical jumping */
+    }
+
+    /* Fixed widths prevent layout jumping when fonts cycle */
+    #zone-designer .letter.english.cycle-font {
+      width: 0.65em;
+      text-align: center;
+    }
+
+    #zone-designer .letter.hindi.cycle-font {
+      width: 1.1em;
+      text-align: center;
+    }
+
+    #zone-designer .letter.revealed {
+      opacity: 1;
+    }
+
+    #zone-designer .hindi {
+      font-family: 'Tiro Devanagari Hindi', serif;
+      font-size: 1.1em;
+      font-weight: 400;
+    }
+
+    #zone-designer .english {
+      font-family: 'Inter', sans-serif;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    /* ── Floor Reflection ───────────────────── */
+    #floor-glow {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 30%;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.03), transparent);
+    }
+
+    /* ── Loading State ──────────────────────── */
+    #loader {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 1.5rem;
+      transition: opacity 0.8s ease, visibility 0.8s ease;
+    }
+
+    #loader.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    #loader .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(0, 0, 0, 0.05);
+      border-top-color: #111111;
+      border-radius: 50%;
+      animation: spin 1s cubic-bezier(0.6, 0.2, 0.4, 0.8) infinite;
+    }
+
+    #loader p {
+      color: #333333;
+      font-family: 'Space Mono', monospace;
+      font-weight: 700;
+      font-size: 0.8rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Loading Screen -->
+  <div id="loader">
+    <div class="spinner"></div>
+    <p>Loading</p>
+  </div>
+
+  <!-- Background -->
+  <div id="bg-gradient"></div>
+  <div id="floor-glow"></div>
+
+  <!-- Text Wipe Layer -->
+  <div id="zone-designer"></div>
+
+  <!-- Three.js 3D Scene Layer -->
+  <div id="scene-container"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    // ════════════════════════════════════════════
+    // CONFIGURATION
+    // ════════════════════════════════════════════
+    const GLB_PATH = './Cartwheel-export.glb';
+    const TRAVEL_DURATION = 6; // seconds to cross screen
+
+    // ── EDIT YOUR FONTS HERE ──
+    const FONT_CYCLE_FAMILIES = [
+      "'Inter', sans-serif",
+      "'Space Mono', monospace",
+      "'Times New Roman', serif",
+      "'Courier New', Annai MN",
+      "Arial, sans-serif"
+    ];
+
+    // ════════════════════════════════════════════
+    // TEXT ZONE SETUP (डि-signer)
+    // ════════════════════════════════════════════
+    const zDesigner = document.getElementById('zone-designer');
+
+    // "डि" (Base character + vowel modifier treated as one visual block)
+    const hindiSpan = document.createElement('span');
+    hindiSpan.classList.add('letter', 'hindi', 'cycle-font');
+    hindiSpan.textContent = 'डि';
+    zDesigner.appendChild(hindiSpan);
+
+    // "-" (Hyphen)
+    const hyphenSpan = document.createElement('span');
+    hyphenSpan.classList.add('letter', 'english'); // No 'cycle-font' class, so it stays static
+    hyphenSpan.textContent = '-';
+    zDesigner.appendChild(hyphenSpan);
+
+    // "signer"
+    'signer'.split('').forEach((char) => {
+      const span = document.createElement('span');
+      span.classList.add('letter', 'english', 'cycle-font');
+      span.textContent = char;
+      zDesigner.appendChild(span);
+    });
+
+    const revealTargets = Array.from(document.querySelectorAll('.letter'));
+
+    // Start cycling fonts for targeted text every 200ms
+    setInterval(() => {
+      const cyclingLetters = document.querySelectorAll('.letter.cycle-font.revealed');
+      cyclingLetters.forEach(el => {
+        const randomFont = FONT_CYCLE_FAMILIES[Math.floor(Math.random() * FONT_CYCLE_FAMILIES.length)];
+        el.style.fontFamily = randomFont;
+      });
+    }, 200);
+
+    // ════════════════════════════════════════════
+    // THREE.JS SCENE SETUP
+    // ════════════════════════════════════════════
+    const container = document.getElementById('scene-container');
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 16);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Bright, clean tone mapping
+    renderer.toneMapping = THREE.LinearToneMapping;
+    renderer.toneMappingExposure = 1;
+    container.appendChild(renderer.domElement);
+
+    // Bright Studio Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
+    scene.add(ambientLight);
+
+    const mainLight = new THREE.DirectionalLight(0xffffff, 3.5);
+    mainLight.position.set(5, 10, 10);
+    scene.add(mainLight);
+
+    const rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    rimLight.position.set(-10, 5, -5);
+    scene.add(rimLight);
+
+    const fillLight = new THREE.DirectionalLight(0xeeeeee, 2.0);
+    fillLight.position.set(0, -5, 5);
+    scene.add(fillLight);
+
+    // ════════════════════════════════════════════
+    // LOAD GLB MODEL & AUTO-FIT
+    // ════════════════════════════════════════════
+    let mixer = null;
+    let model = null;
+    let animAction = null;
+    let modelReady = false;
+
+    // We calculate horizontal start/end based on frustum
+    let frustumWidth = 0;
+    let startX = 0;
+    let endX = 0;
+
+    function setupModel() {
+      // 1. Calculate vertical frustum height
+      const vFov = (camera.fov * Math.PI) / 180;
+      const heightAtZ = 2 * Math.tan(vFov / 2) * camera.position.z;
+      frustumWidth = heightAtZ * camera.aspect;
+
+      // 2. HARDCODED SCALE AND POSITION (from user)
+      model.scale.setScalar(1.2)
+      model.position.y = -1;
+      model.rotation.y = Math.PI / 2; // Rotate 90 degrees to face the direction of walking
+
+      // 3. Define travel boundaries
+      startX = -frustumWidth / 3 - 5;
+      endX = frustumWidth / 3 + 5;
+      model.position.x = startX;
+    }
+
+    const loader = new GLTFLoader();
+    loader.load(
+      GLB_PATH,
+      (gltf) => {
+        model = gltf.scene;
+        scene.add(model);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(model);
+          animAction = mixer.clipAction(gltf.animations[0]);
+          animAction.play();
+        }
+
+        setupModel();
+
+        modelReady = true;
+        document.getElementById('loader').classList.add('hidden');
+      },
+      undefined,
+      (error) => {
+        console.error('Error loading GLB:', error);
+        document.getElementById('loader').querySelector('p').textContent = 'failed to load model';
+      }
+    );
+
+    // ════════════════════════════════════════════
+    // ANIMATION LOOP & INTERACTION
+    // ════════════════════════════════════════════
+    const clock = new THREE.Clock();
+    let travelTime = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+
+      if (mixer) mixer.update(delta);
+
+      if (modelReady && model) {
+        // Linear walk progression without looping
+        travelTime += delta;
+        const progress = Math.min(travelTime / TRAVEL_DURATION, 1.0);
+
+        model.position.x = startX + (endX - startX) * progress;
+
+        // ─ Reveal Wipe Logic ─
+
+        // Get character's screen X position
+        const screenPos = model.position.clone();
+        screenPos.project(camera);
+        const charScreenX = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+
+        // Check if character passed the letters
+        revealTargets.forEach((el) => {
+          if (el.classList.contains('revealed')) return; // Already revealed
+
+          const rect = el.getBoundingClientRect();
+          // Trigger when character is passing the middle of the letter
+          const letterCenter = rect.left + rect.width / 2;
+
+          if (charScreenX > letterCenter) {
+            el.classList.add('revealed');
+          }
+        });
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // ════════════════════════════════════════════
+    // RESIZE HANDLER
+    // ════════════════════════════════════════════
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // Recalculate bounds on resize so it stays centered and sized correctly
+      if (modelReady) {
+        setupModel();
+      }
+    });
+  </script>
+</body>
+
+</html>
