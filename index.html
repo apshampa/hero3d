@@ -200,15 +200,21 @@
     const WORDS = [
       {
         // डि-signer → "Designer"
-        before: { text: 'डि', type: 'indic' },
-        after:  { text: 'signer', type: 'english' },
-        indicCycle: ['డి', 'ഡി', 'ડી', 'ਡੀ', 'ଡି', 'ডি']
+        before: { text: 'De', type: 'indic' },
+        after: { text: 'signer', type: 'english' },
+        indicCycle: ['डि', 'డి', 'ഡി', 'ડી', 'ਡੀ', 'De', 'ডি',]
       },
       {
         // Story-टेलर → "Storyteller"
         before: { text: 'Story', type: 'english' },
-        after:  { text: 'टेलर', type: 'indic' },
-        indicCycle: ['టెల్లర్', 'ടെല്ലർ', 'ટેલર', 'ਟੈਲਰ', 'ଟେଲର', 'টেলার']
+        after: { text: 'teller', type: 'indic' },
+        indicCycle: ['टेलर', 'టెల్లర్', 'ടെല്ലർ', 'ટેલર', 'ਟੈਲਰ', 'teller', 'টেলার']
+      },
+      {
+        // Learn-एर → "Learner"
+        before: { text: 'Learn', type: 'english' },
+        after: { text: 'एर', type: 'indic' },
+        indicCycle: ['ఎర్', 'എർ', 'એર', 'ਅਰ', 'ଏର', 'এর']
       }
     ];
     let currentWordIndex = 0;
